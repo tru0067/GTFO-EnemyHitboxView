@@ -31,7 +31,7 @@ namespace EnemyHitboxView
             {
                 Command = "DisplayEnemyHitboxes",
                 Description = "Show spheres and capsules on enemies to mark their (approximate) hitboxes. Normal hitboxes are green, weakpoints are red, and armor is grey.",
-                Usage = "DisplayEnemyHitboxes <true/false>",
+                Usage = "DisplayEnemyHitboxes [true/false]",
                 Category = CConsole.Commands.CategoryType.Enemy,
                 MinArgumentCount = 0
             }, 
@@ -66,8 +66,7 @@ namespace EnemyHitboxView
                 GameObject go = limb.gameObject;
 
                 // This patch seems to run twice, so make sure the component is just there once so it doesn't get doubled
-                // If it's trying to double up, then just cut the entire patch short since all of them always
-                // (at least in testing) 
+                // If it's trying to double up, then just cut the entire patch short to skip checking that on the rest
                 if (go.GetComponent<EnemyHitboxes>() != null)
                     return;
 
@@ -80,16 +79,11 @@ namespace EnemyHitboxView
 
                 EnemyHitboxes hitbox = go.AddComponent<EnemyHitboxes>();
                 hitbox.Setup(limb, collider);
-
-
             }
 
             // Add a monobehaviour to the EnemyAgent to turn its renderers on and off 
             if (__instance.gameObject.GetComponent<EnemyHitboxCuller>() == null)
                 __instance.gameObject.AddComponent<EnemyHitboxCuller>();
-
-            foreach (IRF.InstancedRenderFeature irf in __instance.gameObject.GetComponentsInChildren<IRF.InstancedRenderFeature>())
-                irf.enabled = !EnemyHitboxes.ShowHitboxes;
 
         }
     }
@@ -123,6 +117,14 @@ namespace EnemyHitboxView
             m_limb = limb;
             m_collider = collider;
 
+            // Create the dummy object that will be used in the limb
+            m_dummyTransform = new GameObject("Hitbox Dummy Obj").transform;
+            m_dummyTransform.parent = m_limb.transform;
+            m_dummyTransform.localRotation = Quaternion.identity; // This will get overridden by the capsule, but it's nice for the rest
+            m_dummyTransform.localPosition = Vector3.zero;
+            // This (setting localpos) is honestly pretty much cosmetic, since all of the colliders seem to have a `center` property that we use for this
+            // However, the clarity is nice (imo)
+
             FleshBulbLimb fleshbulblimbComp = limb.gameObject.GetComponent<FleshBulbLimb>();
             if (fleshbulblimbComp != null)
                 m_bulbController = fleshbulblimbComp.m_fleshBulbController;
@@ -141,9 +143,6 @@ namespace EnemyHitboxView
                 return;
             }
 
-            // Rename the root for name clarity
-            HitboxRoot.gameObject.name = $"{m_limb.gameObject.name} - {HitboxRoot.gameObject.name}";
-
             // Ensure all of the objects are using the same material (really only matters for capsules, but just to keep everything uniform)
             // At the same time, disable all the colliders of the shapes we created
             foreach (Renderer renderer in m_renderers)
@@ -151,73 +150,68 @@ namespace EnemyHitboxView
                 renderer.material = m_material;
                 Destroy(renderer.gameObject.GetComponent<Collider>());
             }
+
+            // Rename the root for name clarity
+            HitboxRoot.gameObject.name = $"{m_limb.gameObject.name} - {HitboxRoot.gameObject.name}";
+
+            // Finally, parent the root to the EnemyAgent so that it will get destroyed when the enemy does
+            HitboxRoot.transform.parent = m_limb.m_base.Owner.transform;
         }
         public void SetupAsBox(BoxCollider bc)
         {
             Transform limbTransform = m_limb.transform;
 
             // Create the dummy object and position it accordingly
-            m_dummyTransform = new GameObject("Hitbox Dummy Obj").transform;
-            m_dummyTransform.parent = limbTransform;
-            m_dummyTransform.localRotation = Quaternion.identity;
             m_dummyTransform.localPosition = bc.center;
 
             // Create the box and size it
             GameObject box = GameObject.CreatePrimitive(PrimitiveType.Cube);
-            box.transform.localScale = bc.size.Multi(limbTransform.lossyScale);
-            Logger.Info($"{limbTransform.lossyScale.x}, {limbTransform.lossyScale.y}, {limbTransform.lossyScale.z}");
+            box.transform.localScale = bc.size.Multiply(limbTransform.lossyScale);
+
+            // The box doesn't have children, so it is the root itself
+            HitboxRoot = box.transform;
 
             // Cache renderer and material for use in update
             Renderer renderer = box.GetComponent<Renderer>();
             m_material = renderer.material;
             m_renderers.Add(renderer);
-
-            // The box doesn't have children, so it is the root itself
-            box.transform.parent = m_limb.m_base.Owner.transform;
-            HitboxRoot = box.transform;
         }
         public void SetupAsSphere(SphereCollider sc)
         {
             Transform limbTransform = m_limb.transform;
 
+            // Position the dummy object
+            m_dummyTransform.localPosition = sc.center;
+
             // Calculate the sphere's to-be scale by using the existing object's scale
             Vector3 objScale = limbTransform.lossyScale;
             float newrad = sc.radius * 2 * Mathf.Max(objScale.x, objScale.y, objScale.z);
-
-            // Create the dummy object and position it accordingly
-            m_dummyTransform = new GameObject("Hitbox Dummy Obj").transform;
-            m_dummyTransform.parent = limbTransform;
-            m_dummyTransform.localPosition = sc.center;
-            m_dummyTransform.localRotation = Quaternion.identity;
 
             // Create the sphere and size it to the correct radius
             GameObject sphere = GameObject.CreatePrimitive(PrimitiveType.Sphere);
             sphere.transform.localScale = new Vector3(newrad, newrad, newrad);
 
             // Cache renderer and material for use in update
-            var renderer = sphere.GetComponent<Renderer>();
+            Renderer renderer = sphere.GetComponent<Renderer>();
             m_material = renderer.material;
             m_renderers.Add(renderer);
 
             // The sphere doesn't have children, so it is the root itself
-            sphere.transform.parent = m_limb.m_base.Owner.transform;
             HitboxRoot = sphere.transform;
         }
         public void SetupAsCapsule(CapsuleCollider cap)
         {
             Transform limbTransform = m_limb.transform;
 
-            // Adjust these numbers to get scale values for the cylinder
-            float newrad = cap.radius * 2;
-            float height = cap.height / 2;
+            // Create the hitbox's dummy object to store the collider's relative position and rotation
+            m_dummyTransform.localPosition = cap.center;
 
             // Grab the limb's global scale for scaling the hitbox pieces later
             Vector3 objScale = limbTransform.lossyScale;
 
-            // Create the hitbox's dummy object to store the collider's relative position and rotation
-            m_dummyTransform = new GameObject("Hitbox Dummy Obj").transform;
-            m_dummyTransform.parent = limbTransform;
-            m_dummyTransform.localPosition = cap.center;
+            // Adjust these numbers to get scale values for the cylinder
+            float newrad = cap.radius * 2;
+            float height = cap.height / 2;
 
             // Rotate the dummy based on what direction the capsule collider is facing,
             // and scale the new cylinder/sphere radius and height by the corresponding parts
@@ -232,7 +226,8 @@ namespace EnemyHitboxView
                     }
                 case 1: // Towards y
                     {
-                        m_dummyTransform.localRotation = Quaternion.Euler(0, 0, 0);
+                        // Don't set rotation because it's already what it would be set to
+                        // m_dummyTransform.localRotation = Quaternion.Euler(0, 0, 0);
                         newrad *= Mathf.Max(objScale.x, objScale.z);
                         height *= objScale.y;
                         break;
@@ -252,27 +247,24 @@ namespace EnemyHitboxView
             // This part copies the position and rotation of the dummy object above
             // This is to avoid stacked scaling schenanigans
             HitboxRoot = new GameObject("Capsule").transform;
-            
-            // Parent the root to the EnemyAgent object so it will be destroyed when the enemy is
-            HitboxRoot.parent = m_limb.m_base.Owner.transform;
 
             // Now create the three shape parts of the capsule and parent them to the root
             GameObject cylinder = GameObject.CreatePrimitive(PrimitiveType.Cylinder);
-            cylinder.transform.parent = HitboxRoot.transform;
+            cylinder.transform.parent = HitboxRoot;
             cylinder.transform.localRotation = Quaternion.identity;
             cylinder.transform.localPosition = Vector3.zero;
             cylinder.transform.localScale = new Vector3(newrad, height, newrad);
 
             GameObject capsuleTop = GameObject.CreatePrimitive(PrimitiveType.Sphere);
             capsuleTop.name = "CapsuleTop";
-            capsuleTop.transform.parent = HitboxRoot.transform;
+            capsuleTop.transform.parent = HitboxRoot;
             capsuleTop.transform.localRotation = Quaternion.identity;
             capsuleTop.transform.localPosition = new Vector3(0, height, 0);
             capsuleTop.transform.localScale = new Vector3(newrad, newrad, newrad);
 
             GameObject capsuleBottom = GameObject.CreatePrimitive(PrimitiveType.Sphere);
             capsuleBottom.name = "CapsuleBottom";
-            capsuleBottom.transform.parent = HitboxRoot.transform;
+            capsuleBottom.transform.parent = HitboxRoot;
             capsuleBottom.transform.localRotation = Quaternion.identity;
             capsuleBottom.transform.localPosition = new Vector3(0, -height, 0);
             capsuleBottom.transform.localScale = new Vector3(newrad, newrad, newrad);
@@ -362,7 +354,8 @@ namespace EnemyHitboxView
             return OutComp != null;
         }
 
-        public static Vector3 Multi(this Vector3 arg1, Vector3 arg2)
+        // Multiply all of the components of the input vector by the corresponding components of the argument vector
+        public static Vector3 Multiply(this Vector3 arg1, Vector3 arg2)
         {
             arg1.x *= arg2.x;
             arg1.y *= arg2.y;
