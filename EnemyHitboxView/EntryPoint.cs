@@ -8,6 +8,7 @@ using Enemies;
 using Il2CppInterop.Runtime.Injection;
 using CConsole.Interop;
 using Il2CppInterop.Runtime.InteropTypes;
+using FluffyUnderware.DevTools.Extensions;
 
 namespace EnemyHitboxView
 {
@@ -22,6 +23,7 @@ namespace EnemyHitboxView
         {
             ClassInjector.RegisterTypeInIl2Cpp<EnemyHitboxes>();
             ClassInjector.RegisterTypeInIl2Cpp<EnemyHitboxCuller>();
+            ClassInjector.RegisterTypeInIl2Cpp<EnemyBackMulti>();
 
             _Harmony = new Harmony($"{VersionInfo.RootNamespace}.Harmony");
             _Harmony.PatchAll();
@@ -29,12 +31,30 @@ namespace EnemyHitboxView
 
             CustomCommands.Register(new()
             {
+                Command = "DisplayEnemyBackMulti",
+                Description = "Show the vectors involved in the back multi calculation. Enemy's forward is green, enemy's chest is blue.",
+                Usage = "DisplayEnemyBackMulti [true/false]",
+                Category = CConsole.Commands.CategoryType.Enemy,
+                MinArgumentCount = 0
+            },
+            (in CustomCmdContext context, string[] args) =>
+            {
+                if (args.Length > 0 && bool.TryParse(args[0], out bool result))
+                    EnemyBackMulti.ShowVectors = result;
+                else
+                    EnemyBackMulti.ShowVectors ^= true; // toggle
+
+                context.Log($"DisplayEnemyBackMulti: {EnemyBackMulti.ShowVectors}");
+            }
+            );
+            CustomCommands.Register(new()
+            {
                 Command = "DisplayEnemyHitboxes",
                 Description = "Show spheres and capsules on enemies to mark their (approximate) hitboxes. Normal hitboxes are green, weakpoints are red, and armor is grey.",
                 Usage = "DisplayEnemyHitboxes [true/false]",
                 Category = CConsole.Commands.CategoryType.Enemy,
                 MinArgumentCount = 0
-            }, 
+            },
             (in CustomCmdContext context, string[] args) =>
                 {
                     if (args.Length > 0 && bool.TryParse(args[0], out bool result))
@@ -84,7 +104,78 @@ namespace EnemyHitboxView
             // Add a monobehaviour to the EnemyAgent to turn its renderers on and off 
             if (__instance.gameObject.GetComponent<EnemyHitboxCuller>() == null)
                 __instance.gameObject.AddComponent<EnemyHitboxCuller>();
+        }
 
+        [HarmonyPatch(typeof(EnemySync), nameof(EnemySync.OnSpawn))]
+        [HarmonyPostfix]
+        public static void OnSpawn_Patch(EnemySync __instance)
+        {
+            if (__instance.m_agent.gameObject.GetComponent<EnemyBackMulti>())
+                return;
+            __instance.m_agent.gameObject.AddComponent<EnemyBackMulti>().enemy = __instance.m_agent;
+        }
+    }
+
+    internal class EnemyBackMulti : MonoBehaviour
+    {
+        public static bool ShowVectors = false;
+
+        public static Vector3 floorOffset = Vector3.up;  // Offset vector so everything doesn't end up displaying in the floor.
+
+        public EnemyAgent enemy;
+        public LineRenderer forward;
+        public LineRenderer chest;
+
+        public void Start()
+        {
+            GameObject forwardGO = new();
+            forward = forwardGO.AddComponent<LineRenderer>();
+            forward.material.color = Color.green;
+            forward.SetWidth(0.1f, 0.1f);
+            GameObject chestGO = new();
+            chest = chestGO.AddComponent<LineRenderer>();
+            chest.material.color = Color.blue;
+            chest.SetWidth(0.1f, 0.1f);
+        }
+
+        public void OnDestroy()
+        {
+            if (forward != null)
+                forward.gameObject.Destroy();
+            if (chest != null)
+                chest.gameObject.Destroy();
+        }
+
+        public void Update()
+        {
+            if (enemy == null || forward == null || chest == null)
+                return;
+
+            if (!ShowVectors || !enemy.Alive || !enemy.EnemyBalancingData.AllowDamgeBonusFromBehind)
+            {
+                forward.positionCount = 0;
+                chest.positionCount = 0;
+                forward.enabled = false;
+                chest.enabled = false;
+                return;
+            }
+
+            forward.enabled = true;
+            // Grab the relevant vector from the enemy.
+            Vector3 forwardVector = enemy.Forward;
+            // Use it to set up our lines.
+            forward.positionCount = 2;
+            forward.SetPosition(0, enemy.Position + floorOffset);
+            forward.SetPosition(1, enemy.Position + floorOffset + forwardVector);
+            // Repeat for chest (if it exists).
+            if (enemy.ModelRef.m_chestBone != null)
+            {
+                chest.enabled = true;
+                Vector3 chestVector = enemy.ModelRef.m_chestBone.up * -1f;
+                chest.positionCount = 2;
+                chest.SetPosition(0, enemy.Position + floorOffset);
+                chest.SetPosition(1, enemy.Position + floorOffset + chestVector);
+            }
         }
     }
 
