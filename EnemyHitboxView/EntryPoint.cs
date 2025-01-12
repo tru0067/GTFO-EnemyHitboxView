@@ -9,6 +9,7 @@ using Il2CppInterop.Runtime.Injection;
 using CConsole.Interop;
 using Il2CppInterop.Runtime.InteropTypes;
 using FluffyUnderware.DevTools.Extensions;
+using Gear;
 
 namespace EnemyHitboxView
 {
@@ -25,6 +26,7 @@ namespace EnemyHitboxView
             ClassInjector.RegisterTypeInIl2Cpp<EnemyHitboxCuller>();
             ClassInjector.RegisterTypeInIl2Cpp<EnemyMeleeHitboxes>();
             ClassInjector.RegisterTypeInIl2Cpp<EnemyBackMulti>();
+            ClassInjector.RegisterTypeInIl2Cpp<PlayerMeleeHitboxes>();
 
             _Harmony = new Harmony($"{VersionInfo.RootNamespace}.Harmony");
             _Harmony.PatchAll();
@@ -84,6 +86,24 @@ namespace EnemyHitboxView
                 context.Log($"DisplayEnemyMeleeHitboxes: {EnemyMeleeHitboxes.ShowHitboxes}");
             }
             );
+            CustomCommands.Register(new()
+            {
+                Command = "DisplayPlayerMeleeHitboxes",
+                Description = "Show spheres to mark player's melee hitboxes.",
+                Usage = "DisplayPlayerMeleeHitboxes [true/false]",
+                Category = CConsole.Commands.CategoryType.LocalPlayer,
+                MinArgumentCount = 0
+            },
+            (in CustomCmdContext context, string[] args) =>
+            {
+                if (args.Length > 0 && bool.TryParse(args[0], out bool result))
+                    PlayerMeleeHitboxes.ShowHitboxes = result;
+                else
+                    PlayerMeleeHitboxes.ShowHitboxes ^= true; // toggle
+
+                context.Log($"DisplayPlayerMeleeHitboxes: {PlayerMeleeHitboxes.ShowHitboxes}");
+            }
+            );
         }
 
         public override bool Unload()
@@ -140,6 +160,14 @@ namespace EnemyHitboxView
         {
             if (__instance.m_agent.gameObject.GetComponent<EnemyBackMulti>() == null)
                 __instance.m_agent.gameObject.AddComponent<EnemyBackMulti>().enemy = __instance.m_agent;
+        }
+
+        [HarmonyPatch(typeof(MeleeWeaponFirstPerson), nameof(MeleeWeaponFirstPerson.Setup))]
+        [HarmonyPostfix]
+        public static void MWFPSetup_Patch(MeleeWeaponFirstPerson __instance)
+        {
+            if (__instance.gameObject.GetComponent<PlayerMeleeHitboxes>() == null)
+                __instance.gameObject.AddComponent<PlayerMeleeHitboxes>().melee = __instance;
         }
     }
 
@@ -514,6 +542,51 @@ namespace EnemyHitboxView
         }
     }
 
+    internal class PlayerMeleeHitboxes : MonoBehaviour
+    {
+        public static bool ShowHitboxes = false;
+
+        public MeleeWeaponFirstPerson melee;
+        public Renderer meleeHitbox;
+
+        public void Start()
+        {
+            GameObject meleeHitboxGO = GameObject.CreatePrimitive(PrimitiveType.Sphere);
+            meleeHitboxGO.GetComponent<Collider>().enabled = false;
+            meleeHitbox = meleeHitboxGO.GetComponent<Renderer>();
+            meleeHitbox.material.color = Color.white;
+            meleeHitbox.transform.position = Vector3.zero;
+        }
+
+        public void OnDestroy()
+        {
+            if (meleeHitbox != null)
+                meleeHitbox.gameObject.Destroy();
+        }
+
+        public void Update()
+        {
+            if (melee == null || meleeHitbox == null)
+                return;
+
+            // Find out if we are currently meleeing.
+            bool currentlyMeleeing = true;
+            if (!ShowHitboxes || !currentlyMeleeing)
+            {
+                meleeHitbox.enabled = false;
+                return;
+            }
+
+            meleeHitbox.enabled = true;
+            float radius = melee.MeleeArchetypeData.AttackSphereRadius;
+            // Check if the radius is getting enlarged for reasons.
+            float inFront = Vector3.Dot(melee.Owner.FPSCamera.Forward, (melee.ModelData.m_damageRefAttack.position - melee.Owner.FPSCamera.Position).normalized);
+            if (inFront > 0.5)
+                radius *= 1f + inFront * melee.m_attackDamageSphereDotScale;
+            meleeHitbox.transform.localScale = new Vector3(radius, radius, radius);
+            meleeHitbox.transform.position = melee.ModelData.m_damageRefAttack.position;
+        }
+    }
     static class Extension
     {
         public static bool TryCastAtHome<T, O>(this T InComp, out O OutComp)
