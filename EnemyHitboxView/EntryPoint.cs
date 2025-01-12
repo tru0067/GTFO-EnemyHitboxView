@@ -23,6 +23,7 @@ namespace EnemyHitboxView
         {
             ClassInjector.RegisterTypeInIl2Cpp<EnemyHitboxes>();
             ClassInjector.RegisterTypeInIl2Cpp<EnemyHitboxCuller>();
+            ClassInjector.RegisterTypeInIl2Cpp<EnemyMeleeHitboxes>();
             ClassInjector.RegisterTypeInIl2Cpp<EnemyBackMulti>();
 
             _Harmony = new Harmony($"{VersionInfo.RootNamespace}.Harmony");
@@ -65,6 +66,24 @@ namespace EnemyHitboxView
                     context.Log($"DisplayEnemyHitboxes: {EnemyHitboxes.ShowHitboxes}");
                 }
             );
+            CustomCommands.Register(new()
+            {
+                Command = "DisplayEnemyMeleeHitboxes",
+                Description = "Show spheres to mark enemy's melee hitboxes.",
+                Usage = "DisplayEnemyMeleeHitboxes [true/false]",
+                Category = CConsole.Commands.CategoryType.Enemy,
+                MinArgumentCount = 0
+            },
+            (in CustomCmdContext context, string[] args) =>
+            {
+                if (args.Length > 0 && bool.TryParse(args[0], out bool result))
+                    EnemyMeleeHitboxes.ShowHitboxes = result;
+                else
+                    EnemyMeleeHitboxes.ShowHitboxes ^= true; // toggle
+
+                context.Log($"DisplayEnemyMeleeHitboxes: {EnemyMeleeHitboxes.ShowHitboxes}");
+            }
+            );
         }
 
         public override bool Unload()
@@ -79,7 +98,7 @@ namespace EnemyHitboxView
     {
         [HarmonyPatch(typeof(EnemyAgent), nameof(EnemyAgent.Setup))]
         [HarmonyPostfix]
-        public static void Setup_Patch(EnemyAgent __instance)
+        public static void EASetup_Patch(EnemyAgent __instance)
         {
             foreach (var limb in __instance.Damage.DamageLimbs)
             {
@@ -106,13 +125,21 @@ namespace EnemyHitboxView
                 __instance.gameObject.AddComponent<EnemyHitboxCuller>();
         }
 
+        // This could possibly be included into the above `EASetup_Patch` method.
+        [HarmonyPatch(typeof(EnemyLocomotion), nameof(EnemyLocomotion.Setup))]
+        [HarmonyPostfix]
+        public static void ELSetup_Patch(EnemyLocomotion __instance)
+        {
+            if (__instance.m_agent.gameObject.GetComponent<EnemyMeleeHitboxes>() == null)
+                __instance.m_agent.gameObject.AddComponent<EnemyMeleeHitboxes>().enemy = __instance.m_agent;
+        }
+
         [HarmonyPatch(typeof(EnemySync), nameof(EnemySync.OnSpawn))]
         [HarmonyPostfix]
-        public static void OnSpawn_Patch(EnemySync __instance)
+        public static void ESOnSpawn_Patch(EnemySync __instance)
         {
-            if (__instance.m_agent.gameObject.GetComponent<EnemyBackMulti>())
-                return;
-            __instance.m_agent.gameObject.AddComponent<EnemyBackMulti>().enemy = __instance.m_agent;
+            if (__instance.m_agent.gameObject.GetComponent<EnemyBackMulti>() == null)
+                __instance.m_agent.gameObject.AddComponent<EnemyBackMulti>().enemy = __instance.m_agent;
         }
     }
 
@@ -411,8 +438,6 @@ namespace EnemyHitboxView
             // Absolute positions
             HitboxRoot.position = m_dummyTransform.position;
             HitboxRoot.rotation = m_dummyTransform.rotation;
-
-
         }
     }
 
@@ -432,6 +457,60 @@ namespace EnemyHitboxView
 
             foreach (IRF.InstancedRenderFeature irf in m_allIRFs)
                 irf.enabled = !EnemyHitboxes.ShowHitboxes;
+        }
+    }
+
+    internal class EnemyMeleeHitboxes : MonoBehaviour
+    {
+        public static bool ShowHitboxes = false;
+
+        public EnemyAgent enemy;
+        public Renderer left;
+        public Renderer right;
+
+        public void Start()
+        {
+            GameObject leftGO = GameObject.CreatePrimitive(PrimitiveType.Sphere);
+            left = leftGO.GetComponent<Renderer>();
+            left.material.color = Color.red;
+            left.transform.position = Vector3.zero;
+            GameObject rightGO = GameObject.CreatePrimitive(PrimitiveType.Sphere);
+            right = rightGO.GetComponent<Renderer>();
+            right.material.color = Color.red;
+            right.transform.position = Vector3.zero;
+        }
+
+        public void OnDestroy()
+        {
+            if (left != null)
+                left.gameObject.Destroy();
+            if (right != null)
+                right.gameObject.Destroy();
+        }
+
+        public void Update()
+        {
+            if (enemy == null || left == null || right == null)
+                return;
+
+            // Find out if the enemy is currently meleeing.
+            ES_StrikerMelee strikerMelee = enemy.Locomotion.StrikerMelee;
+            float meleeProgress = (Clock.Time - strikerMelee.m_startTime) * strikerMelee.m_animSpeed;
+            bool currentlyMeleeing = strikerMelee.m_attackData.DamageStart < meleeProgress && meleeProgress < strikerMelee.m_attackData.DamageEnd;
+
+            if (!ShowHitboxes || !enemy.Alive || !currentlyMeleeing)
+            {
+                left.enabled = false;
+                right.enabled = false;
+                return;
+            }
+
+            left.enabled = true;
+            right.enabled = true;
+            left.transform.localScale = new Vector3(strikerMelee.m_damageRad, strikerMelee.m_damageRad, strikerMelee.m_damageRad);
+            right.transform.localScale = new Vector3(strikerMelee.m_damageRad, strikerMelee.m_damageRad, strikerMelee.m_damageRad);
+            left.transform.position = enemy.ModelRef.m_leftHandBone.position;
+            right.transform.position = enemy.ModelRef.m_rightHandBone.position;
         }
     }
 
