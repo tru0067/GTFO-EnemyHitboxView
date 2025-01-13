@@ -499,10 +499,12 @@ namespace EnemyHitboxView
         public void Start()
         {
             GameObject leftGO = GameObject.CreatePrimitive(PrimitiveType.Sphere);
+            leftGO.GetComponent<Collider>().enabled = false;
             left = leftGO.GetComponent<Renderer>();
             left.material.color = Color.red;
             left.transform.position = Vector3.zero;
             GameObject rightGO = GameObject.CreatePrimitive(PrimitiveType.Sphere);
+            rightGO.GetComponent<Collider>().enabled = false;
             right = rightGO.GetComponent<Renderer>();
             right.material.color = Color.red;
             right.transform.position = Vector3.zero;
