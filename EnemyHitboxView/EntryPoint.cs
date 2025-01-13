@@ -118,7 +118,7 @@ namespace EnemyHitboxView
     {
         [HarmonyPatch(typeof(EnemyAgent), nameof(EnemyAgent.Setup))]
         [HarmonyPostfix]
-        public static void EASetup_Patch(EnemyAgent __instance)
+        public static void Setup_Patch(EnemyAgent __instance)
         {
             foreach (var limb in __instance.Damage.DamageLimbs)
             {
@@ -140,26 +140,15 @@ namespace EnemyHitboxView
                 hitbox.Setup(limb, collider);
             }
 
-            // Add a monobehaviour to the EnemyAgent to turn its renderers on and off 
+            // Add a monobehaviour to the EnemyAgent to turn its hitbox renderers on and off.
             if (__instance.gameObject.GetComponent<EnemyHitboxCuller>() == null)
                 __instance.gameObject.AddComponent<EnemyHitboxCuller>();
-        }
-
-        // This could possibly be included into the above `EASetup_Patch` method.
-        [HarmonyPatch(typeof(EnemyLocomotion), nameof(EnemyLocomotion.Setup))]
-        [HarmonyPostfix]
-        public static void ELSetup_Patch(EnemyLocomotion __instance)
-        {
-            if (__instance.m_agent.gameObject.GetComponent<EnemyMeleeHitboxes>() == null)
-                __instance.m_agent.gameObject.AddComponent<EnemyMeleeHitboxes>().enemy = __instance.m_agent;
-        }
-
-        [HarmonyPatch(typeof(EnemySync), nameof(EnemySync.OnSpawn))]
-        [HarmonyPostfix]
-        public static void ESOnSpawn_Patch(EnemySync __instance)
-        {
-            if (__instance.m_agent.gameObject.GetComponent<EnemyBackMulti>() == null)
-                __instance.m_agent.gameObject.AddComponent<EnemyBackMulti>().enemy = __instance.m_agent;
+            // And one for its back multi vectors:
+            if (__instance.gameObject.GetComponent<EnemyBackMulti>() == null)
+                __instance.gameObject.AddComponent<EnemyBackMulti>().enemy = __instance;
+            // And one for its melee hitboxes:
+            if (__instance.gameObject.GetComponent<EnemyMeleeHitboxes>() == null)
+                __instance.gameObject.AddComponent<EnemyMeleeHitboxes>().enemy = __instance;
         }
 
         [HarmonyPatch(typeof(MeleeWeaponFirstPerson), nameof(MeleeWeaponFirstPerson.Setup))]
