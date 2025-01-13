@@ -8,6 +8,8 @@ using Enemies;
 using Il2CppInterop.Runtime.Injection;
 using CConsole.Interop;
 using Il2CppInterop.Runtime.InteropTypes;
+using FluffyUnderware.DevTools.Extensions;
+using Gear;
 
 namespace EnemyHitboxView
 {
@@ -22,6 +24,9 @@ namespace EnemyHitboxView
         {
             ClassInjector.RegisterTypeInIl2Cpp<EnemyHitboxes>();
             ClassInjector.RegisterTypeInIl2Cpp<EnemyHitboxCuller>();
+            ClassInjector.RegisterTypeInIl2Cpp<EnemyMeleeHitboxes>();
+            ClassInjector.RegisterTypeInIl2Cpp<EnemyBackMulti>();
+            ClassInjector.RegisterTypeInIl2Cpp<PlayerMeleeHitboxes>();
 
             _Harmony = new Harmony($"{VersionInfo.RootNamespace}.Harmony");
             _Harmony.PatchAll();
@@ -29,12 +34,30 @@ namespace EnemyHitboxView
 
             CustomCommands.Register(new()
             {
+                Command = "DisplayEnemyBackMulti",
+                Description = "Show the vectors involved in the back multi calculation. Enemy's forward is green, enemy's chest is blue.",
+                Usage = "DisplayEnemyBackMulti [true/false]",
+                Category = CConsole.Commands.CategoryType.Enemy,
+                MinArgumentCount = 0
+            },
+            (in CustomCmdContext context, string[] args) =>
+            {
+                if (args.Length > 0 && bool.TryParse(args[0], out bool result))
+                    EnemyBackMulti.ShowVectors = result;
+                else
+                    EnemyBackMulti.ShowVectors ^= true; // toggle
+
+                context.Log($"DisplayEnemyBackMulti: {EnemyBackMulti.ShowVectors}");
+            }
+            );
+            CustomCommands.Register(new()
+            {
                 Command = "DisplayEnemyHitboxes",
                 Description = "Show spheres and capsules on enemies to mark their (approximate) hitboxes. Normal hitboxes are green, weakpoints are red, and armor is grey.",
                 Usage = "DisplayEnemyHitboxes [true/false]",
                 Category = CConsole.Commands.CategoryType.Enemy,
                 MinArgumentCount = 0
-            }, 
+            },
             (in CustomCmdContext context, string[] args) =>
                 {
                     if (args.Length > 0 && bool.TryParse(args[0], out bool result))
@@ -44,6 +67,42 @@ namespace EnemyHitboxView
 
                     context.Log($"DisplayEnemyHitboxes: {EnemyHitboxes.ShowHitboxes}");
                 }
+            );
+            CustomCommands.Register(new()
+            {
+                Command = "DisplayEnemyMeleeHitboxes",
+                Description = "Show spheres to mark enemy's melee hitboxes.",
+                Usage = "DisplayEnemyMeleeHitboxes [true/false]",
+                Category = CConsole.Commands.CategoryType.Enemy,
+                MinArgumentCount = 0
+            },
+            (in CustomCmdContext context, string[] args) =>
+            {
+                if (args.Length > 0 && bool.TryParse(args[0], out bool result))
+                    EnemyMeleeHitboxes.ShowHitboxes = result;
+                else
+                    EnemyMeleeHitboxes.ShowHitboxes ^= true; // toggle
+
+                context.Log($"DisplayEnemyMeleeHitboxes: {EnemyMeleeHitboxes.ShowHitboxes}");
+            }
+            );
+            CustomCommands.Register(new()
+            {
+                Command = "DisplayPlayerMeleeHitboxes",
+                Description = "Show spheres to mark player's melee hitboxes.",
+                Usage = "DisplayPlayerMeleeHitboxes [true/false]",
+                Category = CConsole.Commands.CategoryType.LocalPlayer,
+                MinArgumentCount = 0
+            },
+            (in CustomCmdContext context, string[] args) =>
+            {
+                if (args.Length > 0 && bool.TryParse(args[0], out bool result))
+                    PlayerMeleeHitboxes.ShowHitboxes = result;
+                else
+                    PlayerMeleeHitboxes.ShowHitboxes ^= true; // toggle
+
+                context.Log($"DisplayPlayerMeleeHitboxes: {PlayerMeleeHitboxes.ShowHitboxes}");
+            }
             );
         }
 
@@ -81,10 +140,86 @@ namespace EnemyHitboxView
                 hitbox.Setup(limb, collider);
             }
 
-            // Add a monobehaviour to the EnemyAgent to turn its renderers on and off 
+            // Add a monobehaviour to the EnemyAgent to turn its hitbox renderers on and off.
             if (__instance.gameObject.GetComponent<EnemyHitboxCuller>() == null)
                 __instance.gameObject.AddComponent<EnemyHitboxCuller>();
+            // And one for its back multi vectors:
+            if (__instance.gameObject.GetComponent<EnemyBackMulti>() == null)
+                __instance.gameObject.AddComponent<EnemyBackMulti>().enemy = __instance;
+            // And one for its melee hitboxes:
+            if (__instance.gameObject.GetComponent<EnemyMeleeHitboxes>() == null)
+                __instance.gameObject.AddComponent<EnemyMeleeHitboxes>().enemy = __instance;
+        }
 
+        [HarmonyPatch(typeof(MeleeWeaponFirstPerson), nameof(MeleeWeaponFirstPerson.Setup))]
+        [HarmonyPostfix]
+        public static void MWFPSetup_Patch(MeleeWeaponFirstPerson __instance)
+        {
+            if (__instance.gameObject.GetComponent<PlayerMeleeHitboxes>() == null)
+                __instance.gameObject.AddComponent<PlayerMeleeHitboxes>().melee = __instance;
+        }
+    }
+
+    internal class EnemyBackMulti : MonoBehaviour
+    {
+        public static bool ShowVectors = false;
+
+        public static Vector3 floorOffset = Vector3.up;  // Offset vector so everything doesn't end up displaying in the floor.
+
+        public EnemyAgent enemy;
+        public LineRenderer forward;
+        public LineRenderer chest;
+
+        public void Start()
+        {
+            GameObject forwardGO = new();
+            forward = forwardGO.AddComponent<LineRenderer>();
+            forward.material.color = Color.green;
+            forward.SetWidth(0.1f, 0.1f);
+            GameObject chestGO = new();
+            chest = chestGO.AddComponent<LineRenderer>();
+            chest.material.color = Color.blue;
+            chest.SetWidth(0.1f, 0.1f);
+        }
+
+        public void OnDestroy()
+        {
+            if (forward != null)
+                forward.gameObject.Destroy();
+            if (chest != null)
+                chest.gameObject.Destroy();
+        }
+
+        public void Update()
+        {
+            if (enemy == null || forward == null || chest == null)
+                return;
+
+            if (!ShowVectors || !enemy.Alive || !enemy.EnemyBalancingData.AllowDamgeBonusFromBehind)
+            {
+                forward.positionCount = 0;
+                chest.positionCount = 0;
+                forward.enabled = false;
+                chest.enabled = false;
+                return;
+            }
+
+            forward.enabled = true;
+            // Grab the relevant vector from the enemy.
+            Vector3 forwardVector = enemy.Forward;
+            // Use it to set up our lines.
+            forward.positionCount = 2;
+            forward.SetPosition(0, enemy.Position + floorOffset);
+            forward.SetPosition(1, enemy.Position + floorOffset + forwardVector);
+            // Repeat for chest (if it exists).
+            if (enemy.ModelRef.m_chestBone != null)
+            {
+                chest.enabled = true;
+                Vector3 chestVector = enemy.ModelRef.m_chestBone.up * -1f;
+                chest.positionCount = 2;
+                chest.SetPosition(0, enemy.Position + floorOffset);
+                chest.SetPosition(1, enemy.Position + floorOffset + chestVector);
+            }
         }
     }
 
@@ -320,8 +455,6 @@ namespace EnemyHitboxView
             // Absolute positions
             HitboxRoot.position = m_dummyTransform.position;
             HitboxRoot.rotation = m_dummyTransform.rotation;
-
-
         }
     }
 
@@ -344,6 +477,107 @@ namespace EnemyHitboxView
         }
     }
 
+    internal class EnemyMeleeHitboxes : MonoBehaviour
+    {
+        public static bool ShowHitboxes = false;
+
+        public EnemyAgent enemy;
+        public Renderer left;
+        public Renderer right;
+
+        public void Start()
+        {
+            GameObject leftGO = GameObject.CreatePrimitive(PrimitiveType.Sphere);
+            leftGO.GetComponent<Collider>().enabled = false;
+            left = leftGO.GetComponent<Renderer>();
+            left.material.color = Color.red;
+            left.transform.position = Vector3.zero;
+            GameObject rightGO = GameObject.CreatePrimitive(PrimitiveType.Sphere);
+            rightGO.GetComponent<Collider>().enabled = false;
+            right = rightGO.GetComponent<Renderer>();
+            right.material.color = Color.red;
+            right.transform.position = Vector3.zero;
+        }
+
+        public void OnDestroy()
+        {
+            if (left != null)
+                left.gameObject.Destroy();
+            if (right != null)
+                right.gameObject.Destroy();
+        }
+
+        public void Update()
+        {
+            if (enemy == null || left == null || right == null)
+                return;
+
+            // Find out if the enemy is currently meleeing.
+            ES_StrikerMelee strikerMelee = enemy.Locomotion.StrikerMelee;
+            float meleeProgress = (Clock.Time - strikerMelee.m_startTime) * strikerMelee.m_animSpeed;
+            bool currentlyMeleeing = strikerMelee.m_attackData.DamageStart < meleeProgress && meleeProgress < strikerMelee.m_attackData.DamageEnd;
+
+            if (!ShowHitboxes || !enemy.Alive || !currentlyMeleeing)
+            {
+                left.enabled = false;
+                right.enabled = false;
+                return;
+            }
+
+            left.enabled = true;
+            right.enabled = true;
+            left.transform.localScale = new Vector3(strikerMelee.m_damageRad, strikerMelee.m_damageRad, strikerMelee.m_damageRad);
+            right.transform.localScale = new Vector3(strikerMelee.m_damageRad, strikerMelee.m_damageRad, strikerMelee.m_damageRad);
+            left.transform.position = enemy.ModelRef.m_leftHandBone.position;
+            right.transform.position = enemy.ModelRef.m_rightHandBone.position;
+        }
+    }
+
+    internal class PlayerMeleeHitboxes : MonoBehaviour
+    {
+        public static bool ShowHitboxes = false;
+
+        public MeleeWeaponFirstPerson melee;
+        public Renderer meleeHitbox;
+
+        public void Start()
+        {
+            GameObject meleeHitboxGO = GameObject.CreatePrimitive(PrimitiveType.Sphere);
+            meleeHitboxGO.GetComponent<Collider>().enabled = false;
+            meleeHitbox = meleeHitboxGO.GetComponent<Renderer>();
+            meleeHitbox.material.color = Color.white;
+            meleeHitbox.transform.position = Vector3.zero;
+        }
+
+        public void OnDestroy()
+        {
+            if (meleeHitbox != null)
+                meleeHitbox.gameObject.Destroy();
+        }
+
+        public void Update()
+        {
+            if (melee == null || meleeHitbox == null)
+                return;
+
+            // Find out if we are currently meleeing.
+            bool currentlyMeleeing = true;
+            if (!ShowHitboxes || !currentlyMeleeing)
+            {
+                meleeHitbox.enabled = false;
+                return;
+            }
+
+            meleeHitbox.enabled = true;
+            float radius = melee.MeleeArchetypeData.AttackSphereRadius;
+            // Check if the radius is getting enlarged for reasons.
+            float inFront = Vector3.Dot(melee.Owner.FPSCamera.Forward, (melee.ModelData.m_damageRefAttack.position - melee.Owner.FPSCamera.Position).normalized);
+            if (inFront > 0.5)
+                radius *= 1f + inFront * melee.m_attackDamageSphereDotScale;
+            meleeHitbox.transform.localScale = new Vector3(radius, radius, radius);
+            meleeHitbox.transform.position = melee.ModelData.m_damageRefAttack.position;
+        }
+    }
     static class Extension
     {
         public static bool TryCastAtHome<T, O>(this T InComp, out O OutComp)
