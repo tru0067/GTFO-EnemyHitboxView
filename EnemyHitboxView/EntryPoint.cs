@@ -2,6 +2,7 @@
 using BepInEx.Unity.IL2CPP;
 using UnityEngine;
 using HarmonyLib;
+using System;
 using System.Linq;
 using System.Collections.Generic;
 using Enemies;
@@ -11,6 +12,7 @@ using Il2CppInterop.Runtime.InteropTypes;
 using FluffyUnderware.DevTools.Extensions;
 using Gear;
 using EnemyHitboxView.Components;
+using Il2CppSystem.Runtime.Remoting.Messaging;
 
 namespace EnemyHitboxView
 {
@@ -50,7 +52,7 @@ namespace EnemyHitboxView
 
                 context.Log($"DisplayEnemyBackMulti: {EnemyBackMulti.ShowVectors}");
             }
-            );
+            ); // DisplayEnemyBackMulti
             CustomCommands.Register(new()
             {
                 Command = "DisplayEnemyHitboxes",
@@ -68,7 +70,7 @@ namespace EnemyHitboxView
 
                     context.Log($"DisplayEnemyHitboxes: {EnemyLimbHitboxes.ShowHitboxes}");
                 }
-            );
+            ); // DisplayEnemyHitboxes
             CustomCommands.Register(new()
             {
                 Command = "DisplayEnemyMeleeHitboxes",
@@ -86,7 +88,7 @@ namespace EnemyHitboxView
 
                 context.Log($"DisplayEnemyMeleeHitboxes: {EnemyMeleeHitboxes.ShowHitboxes}");
             }
-            );
+            ); // DisplayEnemyMeleeHitboxes
             CustomCommands.Register(new()
             {
                 Command = "DisplayPlayerMeleeHitboxes",
@@ -104,7 +106,7 @@ namespace EnemyHitboxView
 
                 context.Log($"DisplayPlayerMeleeHitboxes: {PlayerMeleeHitboxes.ShowHitboxes}");
             }
-            );
+            ); // DisplayPlayerMeleeHitboxes
         }
 
         public override bool Unload()
