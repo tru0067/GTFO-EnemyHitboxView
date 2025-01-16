@@ -6,4 +6,4 @@
 using System.Diagnostics.CodeAnalysis;
 
 [assembly: SuppressMessage("Performance", "UNT0026:GetComponent always allocates / Use TryGetComponent", Justification = "TryGetComponent is broken in GTFO Il2Cpp Environment")]
-[assembly: SuppressMessage("Performance", "UNT0022:Inefficient position/rotation assignment", Justification = "Preferred Clarity", Scope = "member", Target = "~M:EnemyHitboxView.EnemyHitboxes.Update")]
+[assembly: SuppressMessage("Performance", "UNT0022:Inefficient position/rotation assignment", Justification = "Preferred Clarity", Scope = "member", Target = "~M:EnemyHitboxView.EnemyLimbHitboxes.Update")]
