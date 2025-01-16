@@ -9,6 +9,7 @@ using UnityEngine;
 
 namespace EnemyHitboxView.Components
 {
+    // Made by tru0067
     internal class EnemyMeleeHitboxes : MonoBehaviour
     {
         public static bool ShowHitboxes = false;

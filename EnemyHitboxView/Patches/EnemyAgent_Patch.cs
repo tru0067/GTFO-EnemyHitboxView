@@ -18,8 +18,6 @@ namespace EnemyHitboxView.Patches
         [HarmonyPostfix]
         public static void Setup_Postfix(EnemyAgent __instance)
         {
-            // 
-
             CheckAndAddLimbHitboxComponents(__instance);
             // Add a component to the EnemyAgent to turn its hitbox renderers on and off.
             if (__instance.gameObject.GetComponent<EnemyHitboxCuller>() == null)

@@ -1,18 +1,10 @@
 ﻿using BepInEx;
 using BepInEx.Unity.IL2CPP;
-using UnityEngine;
 using HarmonyLib;
-using System;
 using System.Linq;
-using System.Collections.Generic;
-using Enemies;
 using Il2CppInterop.Runtime.Injection;
 using CConsole.Interop;
-using Il2CppInterop.Runtime.InteropTypes;
-using FluffyUnderware.DevTools.Extensions;
-using Gear;
 using EnemyHitboxView.Components;
-using Il2CppSystem.Runtime.Remoting.Messaging;
 
 namespace EnemyHitboxView
 {
