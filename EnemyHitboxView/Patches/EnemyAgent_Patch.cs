@@ -1,11 +1,6 @@
 ﻿using Enemies;
 using EnemyHitboxView.Components;
 using HarmonyLib;
-using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
 using UnityEngine;
 
 namespace EnemyHitboxView.Patches
@@ -16,7 +11,7 @@ namespace EnemyHitboxView.Patches
 
         [HarmonyPatch(typeof(EnemyAgent), nameof(EnemyAgent.Setup))]
         [HarmonyPostfix]
-        public static void Setup_Postfix(EnemyAgent __instance)
+        public static void Setup_Patch(EnemyAgent __instance)
         {
             CheckAndAddLimbHitboxComponents(__instance);
             // Add a component to the EnemyAgent to turn its hitbox renderers on and off.
