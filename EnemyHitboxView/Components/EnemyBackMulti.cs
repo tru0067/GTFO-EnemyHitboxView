@@ -61,11 +61,21 @@ namespace EnemyHitboxView.Components
             forward.positionCount = 2;
             forward.SetPosition(0, enemy.Position + floorOffset);
             forward.SetPosition(1, enemy.Position + floorOffset + forwardVector);
-            // Repeat for chest (if it exists).
+            // Repeat for chest.
             if (enemy.ModelRef.m_chestBone != null)
             {
+                // Chest bone exists, just use that.
                 chest.enabled = true;
                 Vector3 chestVector = enemy.ModelRef.m_chestBone.up * -1f;
+                chest.positionCount = 2;
+                chest.SetPosition(0, enemy.Position + floorOffset);
+                chest.SetPosition(1, enemy.Position + floorOffset + chestVector);
+            }
+            else
+            {
+                // Chest bone doesn't exist, use the game's fallback vector.
+                chest.enabled = true;
+                Vector3 chestVector = enemy.Damage.transform.forward;
                 chest.positionCount = 2;
                 chest.SetPosition(0, enemy.Position + floorOffset);
                 chest.SetPosition(1, enemy.Position + floorOffset + chestVector);
